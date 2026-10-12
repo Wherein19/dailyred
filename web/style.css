@@ -66,7 +66,38 @@ a { color: inherit; text-underline-offset: 3px; }
 
 /* Masthead ----------------------------------------------------------------- */
 
-.masthead { margin-bottom: 24px; }
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-bottom: 24px;
+}
+
+.lang {
+  display: flex;
+  flex: none;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+}
+
+.lang-button {
+  margin: 0;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 600 16px/1 var(--font-pixel);
+  cursor: pointer;
+}
+
+.lang-button + .lang-button { border-left: 2px solid var(--line); }
+
+.lang-button[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--page);
+}
 
 .title {
   margin: 0;

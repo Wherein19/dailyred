@@ -33,7 +33,9 @@ whole game from source.
 scripts/setup-macos.sh      # ARM cross-compiler + libpng into .toolchain/ (~1 GB, one time)
 scripts/get-pokefirered.sh  # pret/pokefirered at a pinned commit + patches/
 scripts/fetch-vendor.sh     # emulator, emulator core and font into web/vendor/
-scripts/build-rom.sh        # builds the ROM, writes web/game/dailyred.gba.gz
+scripts/build-rom.sh        # English ROM, writes web/game/dailyred.gba.gz
+scripts/get-pokerougefeu.sh # French Rouge Feu decomp + patches/
+scripts/build-rom.sh --fr   # French ROM, writes web/game/dailyred-fr.gba.gz
 node scripts/serve.mjs      # open http://localhost:8080
 ```
 
@@ -47,7 +49,9 @@ You need Git for Windows (Git Bash). From Git Bash, in this repository:
 scripts/setup-windows.sh   # Node.js if missing, MSYS2 host gcc/make/libpng, xPack ARM GCC into .toolchain/
 scripts/get-pokefirered.sh # pret/pokefirered at a pinned commit + patches/
 scripts/fetch-vendor.sh    # emulator, emulator core and font into web/vendor/
-scripts/build-rom.sh       # builds the ROM inside MSYS2 UCRT64
+scripts/build-rom.sh       # English ROM, inside MSYS2 UCRT64
+scripts/get-pokerougefeu.sh # French Rouge Feu decomp + patches/
+scripts/build-rom.sh --fr   # French ROM, web/game/dailyred-fr.gba.gz
 node scripts/serve.mjs     # open http://localhost:8080
 ```
 
@@ -61,9 +65,10 @@ open a new terminal if `node` is not found.
 
 ```
 pret/pokefirered @ 037335f + patches/  ──make modern──▶  pokefirered_modern.gba
+qigast/pokerougefeu @ 932b2ff + patches/ ──make modern──▶  pokerougefeu_modern.gba
                                                               │ gzip (16 MB → 5.5 MB)
 web/ (static files)                                           ▼
-  index.html + app.js ── fetch ──▶ game/dailyred.gba.gz, vendor/mgba_libretro.wasm
+  index.html + app.js ── fetch ──▶ game/dailyred.gba.gz (EN) or dailyred-fr.gba.gz (FR)
         │  writes the day's seed + your record into the ROM bytes (rom-config.js)
         ▼
   Nostalgist.js ──▶ RetroArch + mGBA core (WebAssembly) ──▶ <canvas>
@@ -71,6 +76,12 @@ web/ (static files)                                           ▼
         └─ game-link.js reads the battle's status from the game's RAM
            → daily.js updates your stats in localStorage
 ```
+
+The EN/FR switch chooses which ROM Play boots, and remembers the choice
+(`dailyred-lang`). With nothing saved, Play loads the English ROM. A game
+already running keeps its ROM until the next Play. The French ROM is Rouge
+Feu (not Vert Feuille): the same Daily Red rules, with French FireRed text
+and French wording for the summit result.
 
 **Why an emulator instead of compiling the C to WebAssembly:** the decomp is
 written for GBA hardware (video, DMA, interrupts, the m4a sound engine,
@@ -345,7 +356,7 @@ it at http://localhost:8080:
 ```
 web/index.html  app.js  daily.js  game-link.js  game-files.js  rom-config.js  style.css  favicon.svg  licenses.txt
 web/vendor/     emulator (3.4 MB) + font
-web/game/       dailyred.gba.gz (5.5 MB), built on your machine
+web/game/       dailyred.gba.gz and dailyred-fr.gba.gz (5.5 MB each), built on your machine
 ```
 
 To use another port, pass it: `node scripts/serve.mjs 3000`. Your stats are
@@ -392,11 +403,13 @@ footer links to it.
 
 ```
 patches/pokefirered-dailyred.patch   all changes to pret/pokefirered
+patches/pokerougefeu-dailyred.patch  the same mode on qigast/pokerougefeu (French text)
 scripts/setup-macos.sh               toolchain (xPack arm-none-eabi-gcc 14.2.1 + libpng)
 scripts/setup-windows.sh             Windows toolchain (MSYS2 UCRT64 + xPack ARM GCC)
-scripts/get-pokefirered.sh           pinned upstream checkout + patch
-scripts/save-patch.sh                pokefirered/ changes → patches/
-scripts/build-rom.sh                 make modern → web/game/dailyred.gba.gz
+scripts/get-pokefirered.sh           pinned English checkout + patch
+scripts/get-pokerougefeu.sh          pinned French checkout + patch
+scripts/save-patch.sh                decomp changes → patches/ (pass --fr for French)
+scripts/build-rom.sh                 make modern → web/game/dailyred.gba.gz (--fr for French)
 scripts/fetch-vendor.sh              Nostalgist, mGBA core, font (pinned, checksummed)
 scripts/serve.mjs                    local static server
 web/                                 the website

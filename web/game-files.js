@@ -1,25 +1,40 @@
 // Downloads the ROM and the emulator core once per visit and keeps them in
 // memory, so starting a new run only has to restart the emulator.
+//
+// The ROM follows the site language (web/i18n.js, localStorage dailyred-lang).
+// English is the default, including when this is called with no language, so
+// existing tests keep booting the English ROM.
 
-const FILES = {
-  rom: 'game/dailyred.gba.gz',
+const SHARED = {
   coreJs: 'vendor/mgba_libretro.js',
   coreWasm: 'vendor/mgba_libretro.wasm',
 };
 
-let cached = null;
+const ROMS = {
+  en: 'game/dailyred.gba.gz',
+  fr: 'game/dailyred-fr.gba.gz',
+};
+
+const cached = new Map();
 
 // onProgress(loadedBytes, totalBytes) — totalBytes is 0 when unknown.
-export function loadGameFiles(onProgress = () => {}) {
-  cached ??= download(onProgress).catch((err) => {
-    cached = null; // allow a retry
-    throw err;
-  });
-  return cached;
+// lang is 'en' or 'fr'; anything else loads the English ROM.
+export function loadGameFiles(onProgress = () => {}, lang = 'en') {
+  const language = lang === 'fr' ? 'fr' : 'en';
+  let pending = cached.get(language);
+  if (!pending) {
+    pending = download(language, onProgress).catch((err) => {
+      cached.delete(language); // allow a retry
+      throw err;
+    });
+    cached.set(language, pending);
+  }
+  return pending;
 }
 
-async function download(onProgress) {
-  const responses = await Promise.all(Object.values(FILES).map(async (url) => {
+async function download(language, onProgress) {
+  const files = { rom: ROMS[language], ...SHARED };
+  const responses = await Promise.all(Object.values(files).map(async (url) => {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Couldn't download ${url} (HTTP ${res.status}).`);
     return res;

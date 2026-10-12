@@ -4,6 +4,8 @@
 /.toolchain/
 # scripts/get-pokefirered.sh (pret/pokefirered + patches/)
 /pokefirered/
+# scripts/get-pokerougefeu.sh (qigast/pokerougefeu + patches/)
+/pokefirered-fr/
 # scripts/fetch-vendor.sh
 /web/vendor/
 # scripts/build-rom.sh. Build output; don't commit it.
