@@ -310,6 +310,15 @@ a { color: inherit; text-underline-offset: 3px; }
 
 .button-quiet:not(:disabled):hover { border-color: var(--muted); }
 
+.volume {
+  flex: 1 1 120px;
+  width: 120px;
+  max-width: 180px;
+  margin: 0;
+  accent-color: var(--crimson);
+  cursor: pointer;
+}
+
 /* Touch controls (phones and tablets only) ---------------------------------- */
 
 .pad {

@@ -19,6 +19,7 @@ const ui = {
   play: $('play'),
   retry: $('retry'),
   sound: $('sound'),
+  volume: $('volume'),
   fullscreen: $('fullscreen'),
   wins: $('stat-wins'),
   losses: $('stat-losses'),
@@ -51,6 +52,7 @@ let pollTimer = null;
 let runDate = null;
 let battleSeen = false;
 let muted = session.get('dailyred-muted') === '1';
+let volume = loadVolume();
 let starting = false;
 let titleDate = null;
 let loadingPhase = 'downloading';
@@ -59,14 +61,39 @@ let loadingPhase = 'downloading';
 // so a restart would leave one running (and browsers cap how many a page can
 // have). Track the contexts the emulator creates and close them on exit.
 const audioContexts = [];
+const volumeGains = [];
 const NativeAudioContext = window.AudioContext;
 if (NativeAudioContext) {
   window.AudioContext = class extends NativeAudioContext {
     constructor(...args) {
       super(...args);
       audioContexts.push(this);
+      // The core connects straight to context.destination. Put a gain node
+      // there so the slider sets the level without stepping RetroArch's volume.
+      const gain = this.createGain();
+      gain.gain.value = volume / 100;
+      gain.connect(this.destination);
+      Object.defineProperty(this, 'destination', { configurable: true, get: () => gain });
+      volumeGains.push(gain);
     }
   };
+}
+
+function loadVolume() {
+  try {
+    const raw = localStorage.getItem('dailyred-volume');
+    const n = Number(raw);
+    if (raw != null && n >= 0 && n <= 100) return Math.round(n);
+  } catch { /* keep the default */ }
+  return 100;
+}
+
+function applyVolume() {
+  const level = volume / 100;
+  for (const gain of volumeGains) gain.gain.value = level;
+  ui.volume.value = String(volume);
+  ui.volume.setAttribute('aria-valuenow', String(volume));
+  ui.volume.setAttribute('aria-valuetext', `${volume}%`);
 }
 
 function setState(state) {
@@ -265,6 +292,12 @@ function showMuted() {
   ui.sound.setAttribute('aria-pressed', String(muted));
 }
 
+ui.volume.addEventListener('input', () => {
+  volume = Number(ui.volume.value);
+  try { localStorage.setItem('dailyred-volume', String(volume)); } catch { /* this page only */ }
+  applyVolume();
+});
+
 function showLoading(phase) {
   loadingPhase = phase;
   ui.loadingText.textContent = t(phase);
@@ -382,4 +415,5 @@ window.dailyRed = {
 
 setState('title');
 refreshChrome();
+applyVolume();
 ui.fullscreen.hidden = !document.fullscreenEnabled; // e.g. iPhone Safari
