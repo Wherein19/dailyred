@@ -10,7 +10,7 @@ import {
   today, dailySeed, msUntilTomorrow, loadStats, resultFor, currentStreaks,
   markBattleStarted, recordResult, settleAbandonedGame,
 } from './daily.js';
-import { t, setLang, applyI18n } from './i18n.js';
+import { t, getLang, setLang, applyI18n } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 const app = document.querySelector('.app');
@@ -145,12 +145,14 @@ async function startRun() {
     stopEmulator();
     setState('loading');
     showLoading('downloading');
+    // The ROM is chosen here, from the language saved before Play.
+    const lang = getLang();
     const files = await loadGameFiles((loaded, total) => {
       ui.meter.style.width = total ? `${Math.min(100, (loaded / total) * 100)}%` : '50%';
       ui.loadingDetail.textContent = total
         ? t('progress', { loaded: megabytes(loaded), total: megabytes(total) })
         : t('progressUnknown', { loaded: megabytes(loaded) });
-    });
+    }, lang);
 
     runDate = today();
     stats = loadStats(); // another tab may have played meanwhile
@@ -174,7 +176,7 @@ async function startRun() {
       core: 'mgba',
       element: canvas,
       size: { width: 720, height: 480 }, // render at 3x; CSS scales it to fit
-      rom: { fileName: 'dailyred.gba', fileContent: new Blob([rom]) },
+      rom: { fileName: lang === 'fr' ? 'dailyred-fr.gba' : 'dailyred.gba', fileContent: new Blob([rom]) },
       resolveCoreJs: () => files.coreJs,
       resolveCoreWasm: () => files.coreWasm,
       retroarchConfig: {
@@ -281,6 +283,8 @@ function refreshChrome() {
   else if (app.dataset.state === 'loading') ui.loadingText.textContent = t(loadingPhase);
 }
 
+// Switching language translates the page immediately. A game that is already
+// running keeps its ROM; the next Play boots the ROM for the new language.
 for (const button of document.querySelectorAll('.lang-button')) {
   onClick(button, () => {
     setLang(button.dataset.lang);

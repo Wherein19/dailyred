@@ -1,5 +1,7 @@
-// Site language. The ROM is the English FireRed decompilation, so battles stay
-// in English; this only translates the page around the game.
+// Site language, stored in localStorage as dailyred-lang. English is the
+// default when nothing is saved. Play boots web/game/dailyred.gba.gz for EN
+// and web/game/dailyred-fr.gba.gz for FR (see game-files.js). A game already
+// on screen keeps its ROM until the next Play.
 const KEY = 'dailyred-lang';
 
 export const STRINGS = {

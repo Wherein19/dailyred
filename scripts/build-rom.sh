@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Builds the modified FireRed ROM with the project-local toolchain
+# Builds a Daily Red ROM with the project-local toolchain
 # (scripts/setup-macos.sh or scripts/setup-windows.sh) and puts a gzipped
 # copy in web/game/ for the website.
 #
-#   scripts/build-rom.sh            # normal build
-#   scripts/build-rom.sh clean      # any extra args are passed to make
+#   scripts/build-rom.sh            # English FireRed ROM
+#   scripts/build-rom.sh --fr       # French Rouge Feu ROM
+#   scripts/build-rom.sh clean      # extra args are passed to make
+#   scripts/build-rom.sh --fr clean
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TC="$ROOT/.toolchain"
-GAME="$ROOT/pokefirered"
 
 # Host gcc, make and libpng come from MSYS2 UCRT64. Git Bash can launch this
 # script; the build itself re-enters that environment so the compiler, make
@@ -36,6 +37,32 @@ case "$(uname -s)" in
     export OS="${OS:-Windows_NT}"
     ;;
 esac
+
+# Parsed after the Windows re-entry so the flag is still in "$@".
+LANG_CODE=en
+if [ "${1:-}" = "--fr" ] || [ "${1:-}" = "fr" ]; then
+  LANG_CODE=fr
+  shift
+fi
+
+if [ "$LANG_CODE" = "fr" ]; then
+  GAME="$ROOT/pokefirered-fr"
+  ROM_BASENAME="pokerougefeu_modern.gba"
+  WEB_ROM="dailyred-fr.gba.gz"
+else
+  GAME="$ROOT/pokefirered"
+  ROM_BASENAME="pokefirered_modern.gba"
+  WEB_ROM="dailyred.gba.gz"
+fi
+
+if [ ! -d "$GAME" ]; then
+  if [ "$LANG_CODE" = "fr" ]; then
+    echo "pokefirered-fr/ is missing. Run scripts/get-pokerougefeu.sh first."
+  else
+    echo "pokefirered/ is missing. Run scripts/get-pokefirered.sh first."
+  fi
+  exit 1
+fi
 
 if [ ! -x "$TC/arm-none-eabi/bin/arm-none-eabi-gcc" ] && [ ! -x "$TC/arm-none-eabi/bin/arm-none-eabi-gcc.exe" ]; then
   echo "Toolchain missing. On macOS run scripts/setup-macos.sh; on Windows run scripts/setup-windows.sh."
@@ -79,21 +106,32 @@ case "$(uname -s)" in
     ;;
 esac
 
+# English keeps the original make command. French names Rouge Feu explicitly
+# so the tree's LeafGreen target cannot be selected by a config default.
+make_rom() {
+  if [ "$LANG_CODE" = "fr" ]; then
+    make -C "$GAME" -j"$JOBS" TOOLCHAIN="$TC/arm-none-eabi" MODERN=1 GAME_VERSION=FIRERED GAME_LANGUAGE=FRENCH "$@"
+  else
+    make -C "$GAME" -j"$JOBS" TOOLCHAIN="$TC/arm-none-eabi" MODERN=1 "$@"
+  fi
+}
+
 if [ "$#" -gt 0 ]; then
-  make -C "$GAME" -j"$JOBS" TOOLCHAIN="$TC/arm-none-eabi" MODERN=1 "$@"
+  make_rom "$@"
   exit 0
 fi
 
-make -C "$GAME" -j"$JOBS" TOOLCHAIN="$TC/arm-none-eabi" MODERN=1
+make_rom
 
-ROM="$GAME/pokefirered_modern.gba"
+ROM="$GAME/$ROM_BASENAME"
 # The website downloads a gzipped copy (16 MB -> ~5.5 MB, mostly 0xFF padding)
 # and unpacks it in the browser, so it stays small on any static host.
 mkdir -p "$ROOT/web/game"
-rm -f "$ROOT/web/game/dailyred.gba"
-gzip -9 -n -c "$ROM" > "$ROOT/web/game/dailyred.gba.gz"
-# RED's battle sprite for the site's title card (from the decomp, like the ROM).
+rm -f "$ROOT/web/game/${WEB_ROM%.gz}"
+gzip -9 -n -c "$ROM" > "$ROOT/web/game/$WEB_ROM"
+# RED's battle sprite for the site's title card. The French and English
+# decomp sprites match, so both builds write the same web/game/red.png.
 cp "$GAME/graphics/trainers/front_pics/red_front_pic.png" "$ROOT/web/game/red.png"
 echo
 echo "Built $ROM"
-echo "Website copy: web/game/dailyred.gba.gz ($(wc -c < "$ROOT/web/game/dailyred.gba.gz" | tr -d ' ') bytes)"
+echo "Website copy: web/game/$WEB_ROM ($(wc -c < "$ROOT/web/game/$WEB_ROM" | tr -d ' ') bytes)"
