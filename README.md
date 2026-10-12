@@ -202,11 +202,17 @@ not the byte-matching `agbcc` build, so it doesn't reproduce the retail ROM.
   Light Ball doubles its Sp. Atk) and the strongest trainer AI, so he stays
   the favourite.
 
-- **Moves:** up to 4 different moves picked uniformly from everything the
-  species can learn **by level-up (any level) or TM/HM**. One rule on top: if
-  none of the four can deal damage and the species has any damaging move, one
-  pick is swapped for a damaging move. Species with fewer than 4 learnable moves
-  (Ditto, Unown, Magikarp, Smeargle…) get all of them.
+- **Moves:** up to 4 different moves drawn from everything the species can
+  learn **by level-up (any level) or TM/HM**. The draw is weighted, not
+  uniform: a damaging move weighs its power (fixed-damage moves count as 40),
+  STAB weighs three times as much, and when Attack and Sp. Atk differ by more
+  than 15 the matching side weighs twice as much and the other half as much.
+  A status move has a flat weight of 30. Accuracy scales the weight, and a
+  listed accuracy of 0 means "never misses". After the draw, the set is
+  nudged until it has at least one damaging move, at least one damaging STAB
+  when the species has one, at most one non-damaging move, and at most two
+  moves of the same type. Species with fewer than 4 learnable moves (Ditto,
+  Unown, Magikarp, Smeargle…) get all of them, with no swaps.
 - **Stats:** level 100, random personality (so random nature, gender, ability
   and the usual 1/8192 shiny chance), and trained close to RED's level:
   - **IVs** random from 25 to 31 in every stat (`MIN_TEAM_IV`); RED's are all 31.
@@ -231,8 +237,9 @@ not the byte-matching `agbcc` build, so it doesn't reproduce the retail ROM.
 
 Trade-offs in this first version: the move picker ignores move tutors and egg
 moves (add them in `GetLearnableMoves`), and it's deliberately not
-competitive. Splash, Water Sport or three status moves plus one attack are all
-possible. Items are picked without looking at the moveset beyond type
+competitive. A weak move or a single status move can still show up; four
+status moves, or four moves of one type, no longer can when the pool has
+something else. Items are picked without looking at the moveset beyond type
 boosters, so a Choice Band can land on a Pokémon that mostly uses status
 moves, and species-specific items (Light Ball, Thick Club…) aren't in the pool.
 The generator uses its own RNG state, separate from the game's `Random()`, so

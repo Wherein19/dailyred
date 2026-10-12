@@ -746,10 +746,10 @@ index 0000000..37ee62e
 +};
 diff --git a/src/dailyred_team.c b/src/dailyred_team.c
 new file mode 100644
-index 0000000..4b9a87f
+index 0000000..59209c2
 --- /dev/null
 +++ b/src/dailyred_team.c
-@@ -0,0 +1,493 @@
+@@ -0,0 +1,705 @@
 +#include "global.h"
 +#include "dailyred.h"
 +#include "party_menu.h"
@@ -770,9 +770,12 @@ index 0000000..4b9a87f
 +//     and the normal 1/8192 shiny chance), random IVs from MIN_TEAM_IV to 31,
 +//     and EVs focused on its two best stats (see AssignFocusedEVs), close to
 +//     RED's perfect IVs and hand-picked EV spreads.
-+//   - Up to 4 different moves picked uniformly from everything the species can
-+//     learn by level-up (at any level) or by TM/HM. If the species has any
-+//     damaging move, at least one of the 4 is damaging.
++//   - Up to 4 different moves, weighted (not uniform) from everything the
++//     species can learn by level-up (at any level) or by TM/HM. Stronger
++//     moves, STAB and the side the Pokemon actually attacks with weigh more.
++//     At least one move deals damage, at least one is a damaging STAB when
++//     the species has one, at most one is non-damaging, and at most two
++//     share a type.
 +//   - One held item, picked uniformly from sBattleItems plus the type-boosting
 +//     items for the types of its own attacking moves (RED's team holds items
 +//     too).
@@ -1016,50 +1019,259 @@ index 0000000..4b9a87f
 +    return gBattleMoves[move].power != 0;
 +}
 +
-+static void AssignRandomMoves(struct Pokemon *mon, u32 *rng)
++// A casual set, not a competitive one: stronger moves and STAB come up more
++// often, but a weak or odd move can still be drawn. Weights stay well below
++// 2^16; the sum of a full pool fits in 32 bits.
++#define STATUS_MOVE_WEIGHT    30
++#define FIXED_DAMAGE_WEIGHT   40  // power-1 moves, so they don't outweigh real attacks
++#define ATTACK_STAT_GAP       15  // Atk and Sp. Atk this far apart count as one-sided
++#define SAME_TYPE_LIMIT        2
++
++enum {
++    MOVE_PICK_ANY,
++    MOVE_PICK_DAMAGING,
++    MOVE_PICK_STAB,
++    MOVE_PICK_FITS_TYPES,
++};
++
++static bool8 IsStabMove(u16 species, u16 move)
 +{
-+    u16 moves[MAX_CANDIDATE_MOVES];
-+    u8 count, numMoves, numDamaging, i, j;
-+    u16 temp;
++    const struct SpeciesInfo *info = &gSpeciesInfo[species];
++    u8 type = gBattleMoves[move].type;
 +
-+    count = GetLearnableMoves(mon, moves);
-+    numMoves = min(count, MAX_MON_MOVES);
++    return type == info->types[0] || type == info->types[1];
++}
 +
-+    // Partial Fisher-Yates shuffle: moves[0..numMoves) becomes a uniformly
-+    // random selection without repeats.
++static bool8 MoveAlreadyChosen(const u16 *chosen, u8 chosenCount, u16 move)
++{
++    u8 i;
++
++    for (i = 0; i < chosenCount; i++)
++    {
++        if (chosen[i] == move)
++            return TRUE;
++    }
++    return FALSE;
++}
++
++static u8 CountOfType(const u16 *chosen, u8 chosenCount, u8 type)
++{
++    u8 i, count = 0;
++
++    for (i = 0; i < chosenCount; i++)
++    {
++        if (chosen[i] != MOVE_NONE && gBattleMoves[chosen[i]].type == type)
++            count++;
++    }
++    return count;
++}
++
++// Status moves get a flat weight. Damaging moves scale with power, triple
++// for STAB, and double (or halve) when the species clearly attacks one way.
++// Accuracy 0 is "never misses" in this generation.
++static u16 MoveWeight(u16 species, u16 move)
++{
++    const struct BattleMove *mv = &gBattleMoves[move];
++    const struct SpeciesInfo *info = &gSpeciesInfo[species];
++    u16 weight;
++    u8 accuracy;
++    s16 gap;
++
++    if (mv->power == 0)
++    {
++        weight = STATUS_MOVE_WEIGHT;
++    }
++    else
++    {
++        weight = mv->power <= 1 ? FIXED_DAMAGE_WEIGHT : mv->power;
++        if (IsStabMove(species, move))
++            weight *= 3;
++        gap = (s16)info->baseAttack - info->baseSpAttack;
++        if (gap > ATTACK_STAT_GAP || gap < -ATTACK_STAT_GAP)
++        {
++            if (IS_TYPE_PHYSICAL(mv->type) == (gap > 0))
++                weight *= 2;
++            else
++                weight /= 2;
++        }
++    }
++    accuracy = mv->accuracy == 0 ? 100 : mv->accuracy;
++    weight = (weight * accuracy) / 100;
++    if (weight == 0)
++        weight = 1;
++    return weight;
++}
++
++static bool8 MoveFitsPick(u16 species, u16 move, const u16 *chosen, u8 chosenCount, u8 mode)
++{
++    if (move == MOVE_NONE || MoveAlreadyChosen(chosen, chosenCount, move))
++        return FALSE;
++    if ((mode == MOVE_PICK_DAMAGING || mode == MOVE_PICK_STAB) && !IsDamagingMove(move))
++        return FALSE;
++    if (mode == MOVE_PICK_STAB && !IsStabMove(species, move))
++        return FALSE;
++    if (mode == MOVE_PICK_FITS_TYPES && CountOfType(chosen, chosenCount, gBattleMoves[move].type) >= SAME_TYPE_LIMIT)
++        return FALSE;
++    return TRUE;
++}
++
++static u16 PickWeightedMove(u16 species, const u16 *pool, u8 poolCount, const u16 *chosen, u8 chosenCount, u32 *rng, u8 mode)
++{
++    u32 total = 0;
++    u32 roll;
++    u8 i;
++    u16 weight;
++
++    for (i = 0; i < poolCount; i++)
++    {
++        if (MoveFitsPick(species, pool[i], chosen, chosenCount, mode))
++            total += MoveWeight(species, pool[i]);
++    }
++    if (total == 0)
++        return MOVE_NONE;
++    roll = TeamRandom32(rng) % total;
++    for (i = 0; i < poolCount; i++)
++    {
++        if (!MoveFitsPick(species, pool[i], chosen, chosenCount, mode))
++            continue;
++        weight = MoveWeight(species, pool[i]);
++        if (roll < weight)
++            return pool[i];
++        roll -= weight;
++    }
++    return MOVE_NONE;
++}
++
++// Clears the slot first so it doesn't count as already chosen or toward the
++// type cap. Keeps the old move when nothing legal is left in the pool.
++static bool8 ReplaceMoveSlot(u16 species, u16 *chosen, u8 numMoves, const u16 *pool, u8 poolCount, u32 *rng, u8 slot, u8 mode)
++{
++    u16 saved = chosen[slot];
++    u16 pick;
++
++    chosen[slot] = MOVE_NONE;
++    pick = PickWeightedMove(species, pool, poolCount, chosen, numMoves, rng, mode);
++    if (pick == MOVE_NONE)
++    {
++        chosen[slot] = saved;
++        return FALSE;
++    }
++    chosen[slot] = pick;
++    return TRUE;
++}
++
++static void LimitStatusMoves(u16 species, u16 *chosen, u8 numMoves, const u16 *pool, u8 poolCount, u32 *rng)
++{
++    u8 guard, i, statusCount, slot;
++
++    for (guard = 0; guard < MAX_MON_MOVES; guard++)
++    {
++        statusCount = 0;
++        slot = 0;
++        for (i = 0; i < numMoves; i++)
++        {
++            if (!IsDamagingMove(chosen[i]))
++            {
++                statusCount++;
++                slot = i;
++            }
++        }
++        if (statusCount <= 1)
++            return;
++        if (!ReplaceMoveSlot(species, chosen, numMoves, pool, poolCount, rng, slot, MOVE_PICK_DAMAGING))
++            return;
++    }
++}
++
++static void LimitSameType(u16 species, u16 *chosen, u8 numMoves, const u16 *pool, u8 poolCount, u32 *rng)
++{
++    u8 guard, i, slot;
++
++    for (guard = 0; guard < MAX_MON_MOVES; guard++)
++    {
++        slot = 0xFF;
++        for (i = 0; i < numMoves; i++)
++        {
++            if (CountOfType(chosen, numMoves, gBattleMoves[chosen[i]].type) > SAME_TYPE_LIMIT)
++                slot = i;
++        }
++        if (slot == 0xFF)
++            return;
++        if (!ReplaceMoveSlot(species, chosen, numMoves, pool, poolCount, rng, slot, MOVE_PICK_FITS_TYPES))
++            return;
++    }
++}
++
++static bool8 ChosenHasDamagingStab(u16 species, const u16 *chosen, u8 numMoves)
++{
++    u8 i;
++
 +    for (i = 0; i < numMoves; i++)
 +    {
-+        j = i + TeamRandom(rng) % (count - i);
-+        SWAP(moves[i], moves[j], temp);
++        if (IsDamagingMove(chosen[i]) && IsStabMove(species, chosen[i]))
++            return TRUE;
 +    }
++    return FALSE;
++}
 +
-+    // If none of the picks can deal damage, swap one of them for a random
-+    // damaging move from the rest of the pool (if there is one).
-+    for (i = 0; i < numMoves && !IsDamagingMove(moves[i]); i++)
-+        ;
-+    if (i == numMoves)
++// Prefer to overwrite a status move. For STAB, any non-STAB slot will do,
++// and a status slot still wins when there is one.
++static u8 SlotToReplace(u16 species, const u16 *chosen, u8 numMoves, bool8 wantStab)
++{
++    u8 i, slot = 0;
++
++    for (i = 0; i < numMoves; i++)
 +    {
-+        numDamaging = 0;
-+        for (j = numMoves; j < count; j++)
-+        {
-+            if (IsDamagingMove(moves[j]))
-+                numDamaging++;
-+        }
-+        if (numDamaging != 0)
-+        {
-+            u8 pick = TeamRandom(rng) % numDamaging;
-+            for (j = numMoves; j < count; j++)
-+            {
-+                if (IsDamagingMove(moves[j]) && pick-- == 0)
-+                    break;
-+            }
-+            i = TeamRandom(rng) % numMoves;
-+            SWAP(moves[i], moves[j], temp);
-+        }
++        if (!IsDamagingMove(chosen[i]))
++            return i;
++        if (wantStab && !IsStabMove(species, chosen[i]))
++            slot = i;
++    }
++    return slot;
++}
++
++static void EnsureDamagingMove(u16 species, u16 *chosen, u8 numMoves, const u16 *pool, u8 poolCount, u32 *rng)
++{
++    u8 i;
++
++    for (i = 0; i < numMoves; i++)
++    {
++        if (IsDamagingMove(chosen[i]))
++            return;
++    }
++    ReplaceMoveSlot(species, chosen, numMoves, pool, poolCount, rng, SlotToReplace(species, chosen, numMoves, FALSE), MOVE_PICK_DAMAGING);
++}
++
++static void EnsureStabMove(u16 species, u16 *chosen, u8 numMoves, const u16 *pool, u8 poolCount, u32 *rng)
++{
++    if (ChosenHasDamagingStab(species, chosen, numMoves))
++        return;
++    ReplaceMoveSlot(species, chosen, numMoves, pool, poolCount, rng, SlotToReplace(species, chosen, numMoves, TRUE), MOVE_PICK_STAB);
++}
++
++static void AssignRandomMoves(struct Pokemon *mon, u32 *rng)
++{
++    u16 pool[MAX_CANDIDATE_MOVES];
++    u16 chosen[MAX_MON_MOVES];
++    u16 species = GetMonData(mon, MON_DATA_SPECIES);
++    u8 count, numMoves, i;
++
++    count = GetLearnableMoves(mon, pool);
++    numMoves = min(count, MAX_MON_MOVES);
++    for (i = 0; i < numMoves; i++)
++        chosen[i] = PickWeightedMove(species, pool, count, chosen, i, rng, MOVE_PICK_ANY);
++
++    // The whole pool was taken (Ditto, Unown, Magikarp, ...): nothing to swap in.
++    if (numMoves < count)
++    {
++        LimitStatusMoves(species, chosen, numMoves, pool, count, rng);
++        LimitSameType(species, chosen, numMoves, pool, count, rng);
++        EnsureDamagingMove(species, chosen, numMoves, pool, count, rng);
++        EnsureStabMove(species, chosen, numMoves, pool, count, rng);
 +    }
 +
 +    for (i = 0; i < MAX_MON_MOVES; i++)
-+        SetMonMoveSlot(mon, i < numMoves ? moves[i] : MOVE_NONE, i);
++        SetMonMoveSlot(mon, i < numMoves ? chosen[i] : MOVE_NONE, i);
 +}
 +
 +static void AssignRandomItem(struct Pokemon *mon, u32 *rng)
