@@ -13,6 +13,7 @@ through the mGBA emulator compiled to WebAssembly. Nothing about battles is
 reimplemented in JavaScript.
 
 - [Quick start (macOS)](#quick-start-macos)
+- [Quick start (Windows)](#quick-start-windows)
 - [How it works](#how-it-works)
 - [Team generation](#team-generation)
 - [RED's team](#reds-team)
@@ -37,6 +38,24 @@ node scripts/serve.mjs      # open http://localhost:8080
 ```
 
 `setup-macos.sh` picks the right compiler for Intel or Apple Silicon Macs.
+
+## Quick start (Windows)
+
+You need Git for Windows (Git Bash). From Git Bash, in this repository:
+
+```sh
+scripts/setup-windows.sh   # Node.js if missing, MSYS2 host gcc/make/libpng, xPack ARM GCC into .toolchain/
+scripts/get-pokefirered.sh # pret/pokefirered at a pinned commit + patches/
+scripts/fetch-vendor.sh    # emulator, emulator core and font into web/vendor/
+scripts/build-rom.sh       # builds the ROM inside MSYS2 UCRT64
+node scripts/serve.mjs     # open http://localhost:8080
+```
+
+`setup-windows.sh` uses winget to install Node.js LTS and MSYS2 when they are
+not already there, then installs the UCRT64 packages the ROM tools need
+(`gcc`, `make`, `libpng`). The ARM compiler is the same xPack 14.2.1-1.1
+release as on macOS, the win32-x64 zip. No WSL. After winget installs Node,
+open a new terminal if `node` is not found.
 
 ## How it works
 
@@ -374,6 +393,7 @@ footer links to it.
 ```
 patches/pokefirered-dailyred.patch   all changes to pret/pokefirered
 scripts/setup-macos.sh               toolchain (xPack arm-none-eabi-gcc 14.2.1 + libpng)
+scripts/setup-windows.sh             Windows toolchain (MSYS2 UCRT64 + xPack ARM GCC)
 scripts/get-pokefirered.sh           pinned upstream checkout + patch
 scripts/save-patch.sh                pokefirered/ changes → patches/
 scripts/build-rom.sh                 make modern → web/game/dailyred.gba.gz

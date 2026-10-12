@@ -1,0 +1,23 @@
+#!/bin/bash
+# pokefirered prepends the ARM toolchain to PATH. On Windows that directory
+# contains host DLLs, and the MSYS2 compiler's cc1 loads those instead of
+# its own and exits. Hide the toolchain from the host compiler; the cross
+# compiler is still invoked by its arm-none-eabi- name.
+set -euo pipefail
+
+filtered=
+IFS=:
+for d in $PATH; do
+  case "$d" in
+    */.toolchain/arm-none-eabi/bin) ;;
+    *) filtered="${filtered:+$filtered:}$d" ;;
+  esac
+done
+unset IFS
+export PATH="/ucrt64/bin${filtered:+:$filtered}"
+
+case "$(basename "$0")" in
+  g++|c++) exe=g++ ;;
+  *) exe=gcc ;;
+esac
+exec "/ucrt64/bin/$exe" "$@"
